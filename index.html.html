@@ -1,0 +1,246 @@
+<html>
+
+<head>
+<link rel="stylesheet" type="text/css" href="css/bootstrap.css" />
+<script type="text/javascript" src="js/jquery.js"></script>
+<script type="text/javascript" src="js/underscore.js"></script>
+<script type="text/javascript" src="js/backbone.js"></script>
+<script type="text/javascript" src="data/crops.js"></script>
+</head>
+
+<script type="text/javascript">
+
+_.templateSettings = {
+	interpolate : /\[\[(.+?)\]\]/g
+};
+
+var Crop = Backbone.Model.extend({
+	defaults: {
+		name: "",
+		statistics: "",
+		attributes: [],
+		tier: 0
+	},
+	render: function(){
+		return _.extend(this.toJSON(),{});
+	},
+	parent_score: function(crop) {
+		if (crop.get('name') == this.get('name')) return 500;
+		// return the score for target crop if self is parent
+		var score = 0;
+		var stat1 = this.get('statistics');
+		var stat2 = crop.get('statistics');
+		for (var a=0; a<stat1.length; a++) {
+			var diff = Math.abs(stat1[a] - stat2[a]);
+			switch (diff) {
+				case 0: score += 2; break;
+				case 1: score += 1; break;
+				case 2: score += 0; break;
+				default: score -= 1; break;
+			}
+		}
+		var attr1 = this.get('attributes');
+		var attr2 = crop.get('attributes');
+		for (var a=0; a<attr1.length; a++)
+			for (var b=0; b<attr2.length; b++)
+				if (attr1[a].toLowerCase() == attr2[b].toLowerCase())
+					score += 5;
+		var ptier = this.get('tier');
+		var ttier = crop.get('tier');
+		if (ttier - ptier > 1)
+			score -= (ttier - ptier) * 2;
+		if (ptier - ttier > 3)
+			score -= ptier - ttier;
+		if (score < 0) score = 0;
+		return score;
+	}
+});
+var CropList = Backbone.Collection.extend({ model: Crop });
+var CropsView = Backbone.View.extend({
+	initialize: function() {
+		this.template = _.template($('script#crop_row').html()); },
+	render: function() {
+		var el = $(this.el), self = this;
+		this.model.each(function(crop){
+			var crop_el = $(self.template(crop.render()));
+			crop_el.find('#add').click(function(){
+				if (!self.options.aggregator) return;
+				self.options.aggregator.add_crop(crop);
+			});
+			crop_el.find('#target').click(function(){
+				if (!self.options.aggregator) return;
+				self.options.aggregator.target(crop);
+			});
+			el.append(crop_el);
+		});
+	}
+});
+var AggregatorView = Backbone.View.extend({
+	initialize: function() {
+		this.crops = [];
+		this.crop_template = _.template($('script#crop_name').html());
+		this.score_template = _.template($('script#score').html())},
+	render: function() {
+		var self = this, el = $(this.el);
+		el.find('#croplist').empty();
+		var score = 0;
+		$.each(this.crops, function(idx, crop){
+			var crop_el = $(self.crop_template(crop.render()));
+			crop_el.find('#remove').click(function(){
+				self.crops.splice(idx,1);
+				self.render();
+			});
+			el.find('#croplist').append(crop_el);
+		});
+		el.find('#scores').empty();
+		window.crops.each(function(target_crop){
+			var score = 0;
+			$.each(self.crops, function(idx, parent_crop){
+				score += parent_crop.parent_score(target_crop);
+			});
+			el.find('#scores').append(self.score_template({
+				name: target_crop.get('name'),
+				score: score
+			}));
+		});
+	},
+	add_crop: function(crop) {
+		this.crops.push(crop);
+		this.render();
+	},
+	target: function(crop) {
+		this.target_crop = crop;
+	}
+});
+
+$(document).ready(function(){
+	window.crops = new CropList(crops_data);
+	window.aggregator = new AggregatorView({
+		el: $('#aggregator')
+	});
+	window.main = new CropsView({
+		model: crops, 
+		el: $('#crop_table'),
+		aggregator: aggregator
+	})
+	aggregator.render();
+	main.render();
+});
+</script>
+
+<body>
+
+<script type="text/template" id="crop_name">
+<div>[[name]] <button id="remove" class="close" data-dismiss="alert">×</button></div>
+</script>
+
+<script type="text/template" id="score">
+<tr>
+	<td>[[name]]</td>
+	<td>[[score]]</td>
+</tr>
+</script>
+
+<script type="text/template" id="crop_row">
+<tr>
+	<td>[[name]]</td>
+	<td>[[statistics]]</td>
+	<td>[[attributes]]</td>
+	<td>[[tier]]</td>
+	<td><button class="btn btn-mini" id="add">Add</button></td>
+</tr>
+</script>
+
+<div class="container">
+
+<div class="page-header">
+	<h2>IndustrialCraft 2 Crossbred Crops (v1.97)</h2></div>
+		
+<div class="row">
+	<div class="alert">
+		<strong>Disclaimer:</strong> I strongly urge you to not read this document. Half of the fun in crop agrilculture is the experimentation. Reading this document means you've waived half of the fun of the crops feature of IC2. Alblaka personally said in a forum post to not post any information that is linked to the source code.
+	</div>
+	<div class="alert alert-error">
+		<strong>I repeat. DO NOT LINK THIS PAGE FROM THE IC2 FORUMS.</strong>
+	</div>
+	<div class="span8">
+	<p>These are the results of me looking at the source code of IndustrialCraft 2 for determining the offspring of crossbred plants. No other factors affect the id of the resultant block besides the information listed here. Any speculation as to whether Ferru grows better with an iron block under it is pure empirical evidence and no more valid than the Salem witchcraft trials.</p>
+	<p>The results of cross breeding are entirely dependent on the attributes of the parent plants. A parent plant is any crop that is adjacent to the crossbreeding crop block. If you have a specific target plant in mind, you must choose parent plants with similar statistics, attributes, and tiers.</p>
+	<p>The similarities affect the score of the target plant by the chart on the right. The parent plant contributes 500 score to an offspring that is a clone of itself. A higher score is a higher chance of the offspring becoming the desired plant, weighed against the scores of all the other target plants.</p>
+	<p>To find parent crops that, when crossbred, would create the desired target crop, refer to the chart on the bottom. Do your best to find parents that are similar to your desired plant, and click the "add" button to see the score distribution of the target plants.</p>
+	<p>Although the scores that are shown are a good reference for how you should breed plants, they are not exact probabilities of getting the target plants. The algorithm that is coded does not weigh the scores directly, but instead has an additional layer of probability. This is to encourage more experimentation and discourage breeding mathematically optimal plants. The bottom line is, I strongly encourage you use differing parent plants and experiment. Experience is the best guide in this case.</p>
+	</div>
+	<div class="span4">
+	<table class="table table-bordered">
+		<thead><tr>
+			<th>Similarity</th>
+			<th>Importance</th>
+		</thead>
+		<tbody>
+			<tr>
+				<td>Statistics</td>
+				<td>Each similar statistic contributes up to +2 to score. Dissimilar statistics penalizes -1.</td>
+			</tr>
+			<tr>
+				<td>Attributes</td>
+				<td>Each matching attribute contributes +5 to score.</td>
+			</tr>
+			<tr>
+				<td>Tiers</td>
+				<td>Penalizes score if tiers are off by more than 1.</td>
+			</tr>
+		</tbody>
+	</table>
+	</div>
+</div>
+
+
+<div class="page-header">
+	<h2>Crop calculator</h2></div>
+		
+<div class="row">
+	<div class="span8">
+		<table class="table table-bordered table-striped">
+			<thead>
+			<tr>
+				<th>Crop name</th>
+				<th>Statistics</th>
+				<th>Attribute</th>
+				<th>Tier</th>
+				<th>Parent</th>
+			</tr>
+			</thead>
+			<tbody id="crop_table"></tbody>
+		</table>
+	</div>
+	<div class="span4" id="aggregator">
+		<h3>Parents</h3>
+		<hr>
+		<div id="croplist"></div>
+		<div class="page-header">
+			<h3>Scores for target crops</h3></div>
+		<table class="table">
+			<tbody id="scores"></tbody>
+		</table> 
+	</div>
+	</div>
+	<hr>
+	<br>
+	<br>
+	<center>Page written by <a href="mailto:itwasundere@gmail.com">ItWasUnderE</a>, using <a href="http://twitter.github.com/bootstrap/index.html">Twitter Bootstrap</a>, <a href="http://backbonejs.org">Backbone.js</a>, and <a href="http://jquery.com">jQuery</a></center>
+	<br>
+	<center>
+	Good luck everypony!
+	<br>
+	<br>
+	<iframe width="560" height="315" src="http://www.youtube.com/embed/cP0f5rvVkAU" frameborder="0" allowfullscreen></iframe>
+	</center>
+	<br>
+	<br>
+
+</div>
+	
+</div>
+</body>
+
+</html>
